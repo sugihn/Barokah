@@ -8,15 +8,55 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Cari dan extract ZIP Barokah
+      - name: Extract Barokah Project
+        shell: bash
         run: |
-          mkdir project
+          set -e
+
+          echo "=== FILE ZIP ==="
+          find . -maxdepth 1 -type f -iname "*.zip" -print
+
           ZIP=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: ZIP project tidak ditemukan"
+            exit 1
+          fi
+
           echo "ZIP ditemukan: $ZIP"
+
+          mkdir -p project
           unzip -q "$ZIP" -d project
+
+          echo "=== ISI PROJECT ==="
+          find project -maxdepth 3 -type f | head -100
+
+      - name: Cari Android Project
+        shell: bash
+        run: |
+          set -e
+
+          GRADLE_FILE=$(find project -type f \
+            \( -name "gradlew" -o -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            | head -n 1)
+
+          if [ -z "$GRADLE_FILE" ]; then
+            echo "ERROR: Android/Gradle project tidak ditemukan"
+            echo "Isi folder project:"
+            find project -maxdepth 5 -type f
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$GRADLE_FILE")
+
+          echo "Android project ditemukan di:"
+          echo "$PROJECT_DIR"
+
+          echo "$PROJECT_DIR" > project_path.txt
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -29,11 +69,49 @@ jobs:
 
       - name: Install Android SDK
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --licenses || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build APK
+        shell: bash
+        run: |
+          set -e
+
+          PROJECT_DIR=$(cat project_path.txt)
+
+          echo "Build directory:"
+          echo "$PROJECT_DIR"
+
+          cd "$PROJECT_DIR"
+
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug
+          else
+            gradle assembleDebug
+          fi
+
+      - name: Cari APK
+        shell: bash
+        run: |
+          echo "=== APK YANG DIHASILKAN ==="
+          find project -type f -name "*.apk" -print
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Barokah-APK
+          path: project/**/*.apk
+          if-no-files-found: error
         with:
           gradle-version: '8.7'
 
